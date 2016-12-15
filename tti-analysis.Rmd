@@ -1,0 +1,79 @@
+---
+title: "TTI Analysis"
+author: "tdresser@chromium.org"
+date: "December 12, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(plotly)
+library(reshape2)
+library(GGally)
+```
+
+```{r pressure, echo=FALSE}
+df = read.csv("data.csv")
+df[12:13] <- list(NULL)
+df$ttifmp = as.double(df$firstInteractive.FMP) / 1000.0
+dfm <- reshape2:::melt.data.frame(df, id=c("url", "trace", "ttifmp"), 
+            variable.name = "measurement",
+            value.name = "ms")
+
+dfm$ms <- suppressWarnings(as.double(dfm$ms)) # Ignore coercion warnings.
+dfm$seconds <- dfm$ms / 1000.0
+means = aggregate(ms ~ measurement, data = dfm, FUN = mean)
+ordered = means[order(means$ms),][['measurement']]
+dfm$measurement = factor(dfm$measurement, levels = ordered)
+dfm <- na.omit(dfm)
+```
+
+```{r graph, echo=FALSE, fig.width=10, fig.height=12}
+# Breaks used for log graph. 
+b = c(5,7.5,10,15,20,30,40,50,60,80,100,120)
+
+p = ggplot(aes(x=measurement, y=seconds, color=ttifmp), data=dfm) + 
+     geom_jitter(alpha = 0.3, aes(text=url)) + 
+     scale_y_continuous(
+         trans = "log10", 
+         breaks = b,
+         labels = b) + 
+     theme(
+         axis.text.x = element_text(angle = 90, hjust = 1, size=15),
+         axis.text.y = element_text(size=15),
+         panel.grid.minor.y = element_blank()) +
+     scale_color_distiller(palette = "Spectral")
+
+print(p)
+
+#ggplotly(tooltip=c("text"))
+```
+
+```{r pairs, echo=FALSE, fig.width=30, fig.height=30}
+# TODO - get rid of this cast.
+df_casted <- dcast(dfm, url ~ measurement, value.var="seconds")
+df_casted$url = NULL # Don't care about URL
+df_casted <- na.omit(df_casted)
+
+generate_scatter <- function(data, mapping, ...){
+  ggplot(data = data, mapping = mapping) + 
+    geom_point(alpha = 0.1) +
+    scale_x_continuous(trans = "log10", breaks=b, labels=b) +
+    scale_y_continuous(trans = "log10", breaks=b, labels=b)
+}
+
+generate_density <- function(data, mapping, ...) {
+    r = ggplot(data = data, mapping = mapping) + 
+      geom_density(..., fill="red", color=NA) +
+      scale_x_continuous(trans = "log10", breaks=b, labels=b)
+    r
+}
+
+p = ggpairs(df_casted, 
+      lower=list(continuous = generate_scatter),
+      upper = list(continuous = wrap(ggally_cor, size = 10)),       
+      diag=list(continuous = generate_density))
+
+print(p)
+```
